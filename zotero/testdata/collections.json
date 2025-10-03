@@ -1,0 +1,58 @@
+[
+  {
+    "key": "COLL1234",
+    "version": 50,
+    "library": {
+      "type": "user",
+      "id": 12345,
+      "name": "testuser"
+    },
+    "links": {
+      "self": {
+        "href": "https://api.zotero.org/users/12345/collections/COLL1234",
+        "type": "application/json"
+      },
+      "alternate": {
+        "href": "https://www.zotero.org/testuser/collections/COLL1234",
+        "type": "text/html"
+      }
+    },
+    "meta": {
+      "numCollections": 2,
+      "numItems": 5
+    },
+    "data": {
+      "key": "COLL1234",
+      "version": 50,
+      "name": "Test Collection",
+      "parentCollection": "",
+      "relations": {}
+    }
+  },
+  {
+    "key": "COLL5678",
+    "version": 51,
+    "library": {
+      "type": "user",
+      "id": 12345,
+      "name": "testuser"
+    },
+    "links": {
+      "self": {
+        "href": "https://api.zotero.org/users/12345/collections/COLL5678",
+        "type": "application/json"
+      }
+    },
+    "meta": {
+      "numCollections": 0,
+      "numItems": 3
+    },
+    "data": {
+      "key": "COLL5678",
+      "version": 51,
+      "name": "Subcollection",
+      "parentCollection": "COLL1234",
+      "relations": {}
+    }
+  }
+]

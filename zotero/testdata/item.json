@@ -1,0 +1,51 @@
+{
+  "key": "ABCD1234",
+  "version": 100,
+  "library": {
+    "type": "user",
+    "id": 12345,
+    "name": "testuser"
+  },
+  "links": {
+    "self": {
+      "href": "https://api.zotero.org/users/12345/items/ABCD1234",
+      "type": "application/json"
+    },
+    "alternate": {
+      "href": "https://www.zotero.org/testuser/items/ABCD1234",
+      "type": "text/html"
+    }
+  },
+  "meta": {
+    "creatorSummary": "Doe",
+    "parsedDate": "2023-01-15",
+    "numChildren": 2
+  },
+  "data": {
+    "key": "ABCD1234",
+    "version": 100,
+    "itemType": "book",
+    "title": "Test Book Title",
+    "creators": [
+      {
+        "creatorType": "author",
+        "firstName": "John",
+        "lastName": "Doe"
+      }
+    ],
+    "abstractNote": "This is a test abstract",
+    "tags": [
+      {
+        "tag": "test"
+      },
+      {
+        "tag": "example",
+        "type": 1
+      }
+    ],
+    "collections": ["COLL1234"],
+    "relations": {},
+    "dateAdded": "2023-01-15T10:30:00Z",
+    "dateModified": "2023-01-16T14:20:00Z"
+  }
+}
