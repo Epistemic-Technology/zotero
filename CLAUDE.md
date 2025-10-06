@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A Go client library for the Zotero API that enables interaction with the Zotero Web API v3. The library is modeled after the Python pyzotero implementation and provides comprehensive read-only access to Zotero libraries, collections, items, searches, and tags.
+A Go client library for the Zotero API that enables interaction with the Zotero Web API v3. The library is modeled after the Python pyzotero implementation and provides comprehensive read and write access to Zotero libraries, collections, items, searches, and tags.
 
 ## Commands
 
@@ -110,13 +110,13 @@ bin/zotero-cli groups -user 12345
 
 ### Core Structure
 
-The library consists of three main files in the `zotero/` package:
+The library consists of seven main files in the `zotero/` package:
 
 1. **zotero.go** - Client configuration and initialization
    - `Client` struct manages API connections with library ID, type (user/group), and API key
    - Functional options pattern via `ClientOption` for flexible configuration
    - Built-in rate limiting using `golang.org/x/time/rate` (default 1 request/second)
-   - HTTP request handling with `doRequest()` method supporting context, rate limiting, and error handling
+   - HTTP request handling with `doRequest()` and `doWriteRequest()` methods supporting context, rate limiting, and error handling
    - Configurable retry logic via `RetryConfig` (currently defined but not implemented)
    - Logger support for debugging API requests
 
@@ -125,7 +125,7 @@ The library consists of three main files in the `zotero/` package:
    - `Collection` and `CollectionData` - Item collections with hierarchical support
    - `Search` and `SearchData` - Saved searches with conditions
    - `Group` and `GroupMeta` - Group library information and metadata
-   - `WriteResponse` and `FailedWrite` - Write operation responses (models only, write operations not yet implemented)
+   - `WriteResponse` and `FailedWrite` - Write operation responses with success/unchanged/failed status
    - `DeletedContent` - Tracking deleted resources (items, collections, searches, tags)
    - `TagsResponse` - Tag information with usage counts
    - `Creator`, `Tag`, `Relations` - Supporting structures for items
@@ -141,21 +141,38 @@ The library consists of three main files in the `zotero/` package:
    - Group operations: `Groups()` (requires user library type)
    - Utility methods: `NumItems()`, `LastModifiedVersion()`, `Deleted()`
 
-4. **itemtypes.go** - Item type and creator type constants
+4. **write.go** - Write operations for the Zotero API
+   - Item operations: `CreateItems()`, `UpdateItem()`, `UpdateItems()`, `DeleteItem()`, `DeleteItems()`
+   - Collection operations: `CreateCollections()`, `UpdateCollection()`, `UpdateCollections()`, `DeleteCollection()`, `DeleteCollections()`
+   - Search operations: `CreateSearches()`, `UpdateSearch()`, `DeleteSearch()`, `DeleteSearches()`
+   - Tag operations: `AddTags()`, `DeleteTags()`
+   - Attachment operations: `UploadAttachment()` - Multi-step file upload with authorization, upload to storage, and registration
+   - All write operations support batch processing (up to 50 items per request)
+   - Version-based concurrency control via `If-Unmodified-Since-Version` header
+   - Returns `WriteResponse` for batch operations showing success/unchanged/failed items
+   - Helper methods: `doWriteRequest()`, `doFileAuthRequest()` for handling write and file upload requests
+
+5. **itemtypes.go** - Item type and creator type constants
    - String constants for common item types (book, journalArticle, webpage, etc.)
    - String constants for common creator types (author, editor, contributor, etc.)
    - Provides IDE autocomplete and type safety for most common use cases
    - Helper functions: `IsExcludeFilter()`, `WithoutExcludePrefix()`
    - Users can still use raw strings for any item type not listed as a constant
 
-5. **schema.go** - Dynamic schema fetching from Zotero API
+6. **schema.go** - Dynamic schema fetching from Zotero API
    - `ItemTypes()` - Fetch all available item types with localization
    - `ItemFields()` - Fetch all available fields
    - `ItemTypeFields()` - Fetch valid fields for a specific item type
    - `ItemTypeCreatorTypes()` - Fetch valid creator types for a specific item type
    - `CreatorFields()` - Fetch localized creator field names
-   - `NewItemTemplate()` - Get a template for creating new items (useful for future write operations)
+   - `NewItemTemplate()` - Get a template for creating new items (recommended before creating items)
    - All methods support optional locale parameter for internationalization
+
+7. **write_test.go** - Unit tests for write operations
+   - Mock HTTP server tests for create, update, and delete operations
+   - Tests for items, collections, searches, and tags
+   - Tests for batch operations and error handling
+   - Tests for version-based concurrency control
 
 ### Client Configuration
 
@@ -235,6 +252,197 @@ Items use a flexible structure where common fields are explicitly defined in `It
 
 Relations between items use the `Relations` struct with Dublin Core and OWL predicates for semantic relationships.
 
+### Write Operations
+
+All write operations require an API key with write permissions. The library provides comprehensive write support modeled after pyzotero:
+
+#### Creating Items
+
+```go
+// Get a template for the item type (recommended)
+template, err := client.NewItemTemplate(ctx, zotero.ItemTypeBook)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Populate the template
+item := zotero.Item{
+    Data: zotero.ItemData{
+        ItemType: zotero.ItemTypeBook,
+        Title:    "The Go Programming Language",
+        Creators: []zotero.Creator{
+            {CreatorType: zotero.CreatorTypeAuthor, FirstName: "Alan", LastName: "Donovan"},
+            {CreatorType: zotero.CreatorTypeAuthor, FirstName: "Brian", LastName: "Kernighan"},
+        },
+    },
+}
+
+// Create the item
+resp, err := client.CreateItems(ctx, []zotero.Item{item})
+if err != nil {
+    log.Fatal(err)
+}
+
+// Check response for success/failures
+for idx, key := range resp.Success {
+    fmt.Printf("Created item %s at index %s\n", key, idx)
+}
+for idx, failure := range resp.Failed {
+    fmt.Printf("Failed to create item at index %s: %s\n", idx, failure.Message)
+}
+```
+
+#### Updating Items
+
+```go
+// Fetch the current item (to get version number)
+item, err := client.Item(ctx, "ABCD1234", nil)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Modify the item
+item.Data.Title = "Updated Title"
+
+// Update single item
+err = client.UpdateItem(ctx, item)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Or update multiple items at once (up to 50)
+items := []zotero.Item{item1, item2, item3}
+resp, err := client.UpdateItems(ctx, items)
+```
+
+#### Deleting Items
+
+```go
+// Delete a single item (requires version for concurrency control)
+err := client.DeleteItem(ctx, "ABCD1234", version)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Delete multiple items at once (up to 50)
+itemKeys := []string{"ABCD1234", "EFGH5678"}
+err = client.DeleteItems(ctx, itemKeys, version)
+```
+
+#### Collections
+
+```go
+// Create a collection
+collection := zotero.Collection{
+    Data: zotero.CollectionData{
+        Name: "My Research Papers",
+        ParentCollection: "", // empty for top-level
+    },
+}
+resp, err := client.CreateCollections(ctx, []zotero.Collection{collection})
+
+// Update a collection
+collection.Data.Name = "Updated Name"
+err = client.UpdateCollection(ctx, &collection)
+
+// Delete a collection
+err = client.DeleteCollection(ctx, "COLL1234", version)
+```
+
+#### Searches
+
+```go
+// Create a saved search
+search := zotero.Search{
+    Data: zotero.SearchData{
+        Name: "Recent Articles",
+        Conditions: []zotero.SearchCondition{
+            {Condition: "itemType", Operator: "is", Value: "journalArticle"},
+            {Condition: "date", Operator: "isInTheLast", Value: "30 days"},
+        },
+    },
+}
+resp, err := client.CreateSearches(ctx, []zotero.Search{search})
+
+// Update a search
+err = client.UpdateSearch(ctx, &search)
+
+// Delete a search
+err = client.DeleteSearch(ctx, "SRCH1234", version)
+```
+
+#### Tags
+
+```go
+// Add tags to an item (convenience method that fetches, modifies, and updates)
+err := client.AddTags(ctx, "ABCD1234", "important", "to-read", "golang")
+
+// Delete tags from the library (removes from all items)
+err = client.DeleteTags(ctx, version, "obsolete", "old-tag")
+```
+
+#### Attachments
+
+```go
+// Upload a file as an attachment to a parent item
+attachment, err := client.UploadAttachment(ctx, parentItemKey, "/path/to/file.pdf", "file.pdf", "application/pdf")
+if err != nil {
+    log.Fatal(err)
+}
+
+// Create a standalone attachment (no parent)
+attachment, err := client.UploadAttachment(ctx, "", "/path/to/document.pdf", "document.pdf", "application/pdf")
+
+// The method handles the complete multi-step upload process:
+// 1. Creates an attachment item with linkMode "imported_file"
+// 2. Requests upload authorization from Zotero
+// 3. Uploads the file to cloud storage (S3)
+// 4. Registers the upload with Zotero
+// 5. Returns the completed attachment item
+```
+
+#### Batch Operations
+
+All write operations support batch processing with up to 50 items per request:
+
+```go
+// Create up to 50 items at once
+items := make([]zotero.Item, 50)
+for i := range items {
+    items[i] = zotero.Item{
+        Data: zotero.ItemData{
+            ItemType: zotero.ItemTypeBook,
+            Title:    fmt.Sprintf("Book %d", i),
+        },
+    }
+}
+resp, err := client.CreateItems(ctx, items)
+
+// Response includes success, unchanged, and failed items
+fmt.Printf("Success: %d, Unchanged: %d, Failed: %d\n", 
+    len(resp.Success), len(resp.Unchanged), len(resp.Failed))
+```
+
+#### Concurrency Control
+
+All update and delete operations require version information to prevent conflicts:
+
+```go
+// Always fetch the current version before updating
+item, err := client.Item(ctx, "ABCD1234", nil)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Version is automatically included from the item
+err = client.UpdateItem(ctx, item)
+
+// For deletes, you must provide the version explicitly
+err = client.DeleteItem(ctx, "ABCD1234", item.Version)
+```
+
+The API returns a 412 Precondition Failed error if the version doesn't match, indicating the item was modified by another client.
+
 ### Schema Fetching
 
 For advanced use cases (e.g., validation, UI generation, supporting new item types), you can fetch the current Zotero schema dynamically:
@@ -297,36 +505,51 @@ The project has two types of tests:
 - **Purpose**: Test internal logic, data models, query building, error handling
 
 ### Integration Tests (`tests/` package)
-- **Location**: `tests/integration_test.go`
+- **Location**: `tests/integration_test.go`, `tests/write_integration_test.go`
 - **Type**: Black-box tests against real Zotero APIs
-- **Requirements**: API credentials in `.env` file
+- **Requirements**: API credentials in `.env` file (write operations require API key with write permissions)
 - **APIs**: Live Zotero Web API or local Zotero desktop REST API
 - **Run**: `make test-integration` or `go test ./tests`
 - **Purpose**: Verify end-to-end functionality with real API
 - **Features**:
   - Auto-skip if credentials not available
   - Switch between live and local API via `TEST_API_URL`
-  - Test all read operations, pagination, sorting, filtering
+  - Test all read operations: pagination, sorting, filtering
+  - Test all write operations: create, update, delete for items, collections, searches, tags
+  - Test batch operations and version-based concurrency control
+  - Automatic cleanup of test resources using deferred deletion
   - See `tests/README.md` for detailed documentation
 
 ## Current Status
 
 ### Implemented Features
-- ✅ Complete read-only API support for items, collections, searches, tags, and groups
+- ✅ Complete read API support for items, collections, searches, tags, and groups
+- ✅ Complete write API support:
+  - ✅ Create, update, delete items (single and batch operations)
+  - ✅ Create, update, delete collections (single and batch operations)
+  - ✅ Create, update, delete saved searches (single and batch operations)
+  - ✅ Add and delete tags
+  - ✅ Upload attachments (multi-step file upload process)
+  - ✅ Version-based concurrency control (412 Precondition Failed on version mismatch)
+  - ✅ Batch operations (up to 50 items per request)
+  - ✅ WriteResponse with success/unchanged/failed tracking
 - ✅ Rate limiting and timeout configuration
 - ✅ Context support for all API calls
 - ✅ Query parameter support (pagination, sorting, filtering, formats)
 - ✅ CLI tool with environment variable support
 - ✅ Logger integration for debugging
-- ✅ Unit tests with mock HTTP servers and fixtures
-- ✅ Integration tests for live/local API testing
+- ✅ Unit tests with mock HTTP servers and fixtures (read and write operations)
+- ✅ Integration tests for live/local API testing (read and write operations)
+- ✅ Schema fetching with localization support
+- ✅ Item type and creator type constants for IDE autocomplete
 
 ### Not Yet Implemented
-- ❌ Write operations (create, update, delete items/collections)
 - ❌ Retry logic for failed requests (RetryConfig defined but not used)
 - ❌ JSON field ordering preservation (preserveJSON flag defined but not used)
-- ❌ Attachment upload/download
+- ❌ Attachment download (upload is implemented)
 - ❌ Full-text search
+- ❌ Adding items to collections via write API
+- ❌ Removing items from collections via write API
 
 ## External References
 

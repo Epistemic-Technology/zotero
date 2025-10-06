@@ -174,7 +174,7 @@ func TestCollectionsTop(t *testing.T) {
 	for _, coll := range collections {
 		if coll.Data.ParentCollection != "" {
 			t.Errorf("CollectionsTop() returned collection %s with parent %s",
-				coll.Key, coll.Data.ParentCollection)
+				coll.Key, coll.Data.ParentCollection.String())
 		}
 	}
 

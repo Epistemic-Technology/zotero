@@ -104,6 +104,58 @@ func main() {
 
 		listGroups(*userID, apiKey, verbose)
 
+	case "create":
+		createCmd := flag.NewFlagSet("create", flag.ExitOnError)
+		createCmd.StringVar(&apiKey, "key", envAPIKey, "Zotero API key (or set ZOTERO_API_KEY)")
+		createCmd.StringVar(&libraryID, "library", envLibraryID, "Library ID (or set ZOTERO_LIBRARY_ID)")
+		createCmd.StringVar(&libraryType, "type", envLibraryType, "Library type: user or group (or set ZOTERO_LIBRARY_TYPE)")
+		createCmd.BoolVar(&verbose, "v", false, "Enable verbose logging")
+		itemType := createCmd.String("itemtype", zotero.ItemTypeJournalArticle, "Item type (e.g., book, journalArticle, webpage)")
+		title := createCmd.String("title", "", "Item title (required)")
+		authors := createCmd.String("authors", "", "Authors (comma-separated, format: 'First Last, First Last')")
+		file := createCmd.String("file", "", "Optional: Path to file to attach to the item")
+		contentType := createCmd.String("contenttype", "application/pdf", "MIME type of the file (used with -file)")
+		createCmd.Parse(os.Args[2:])
+
+		if libraryID == "" || *title == "" {
+			fmt.Println("Error: -library and -title are required")
+			createCmd.PrintDefaults()
+			os.Exit(1)
+		}
+
+		if apiKey == "" {
+			fmt.Println("Error: API key required for write operations")
+			createCmd.PrintDefaults()
+			os.Exit(1)
+		}
+
+		createItem(libraryID, libraryType, apiKey, verbose, *itemType, *title, *authors, *file, *contentType)
+
+	case "upload":
+		uploadCmd := flag.NewFlagSet("upload", flag.ExitOnError)
+		uploadCmd.StringVar(&apiKey, "key", envAPIKey, "Zotero API key (or set ZOTERO_API_KEY)")
+		uploadCmd.StringVar(&libraryID, "library", envLibraryID, "Library ID (or set ZOTERO_LIBRARY_ID)")
+		uploadCmd.StringVar(&libraryType, "type", envLibraryType, "Library type: user or group (or set ZOTERO_LIBRARY_TYPE)")
+		uploadCmd.BoolVar(&verbose, "v", false, "Enable verbose logging")
+		file := uploadCmd.String("file", "", "Path to file to upload (required)")
+		parentItem := uploadCmd.String("parent", "", "Parent item key (empty for standalone attachment)")
+		contentType := uploadCmd.String("contenttype", "application/pdf", "MIME type of the file")
+		uploadCmd.Parse(os.Args[2:])
+
+		if libraryID == "" || *file == "" {
+			fmt.Println("Error: -library and -file are required")
+			uploadCmd.PrintDefaults()
+			os.Exit(1)
+		}
+
+		if apiKey == "" {
+			fmt.Println("Error: API key required for write operations")
+			uploadCmd.PrintDefaults()
+			os.Exit(1)
+		}
+
+		uploadFile(libraryID, libraryType, apiKey, verbose, *file, *parentItem, *contentType)
+
 	default:
 		fmt.Printf("Unknown command: %s\n\n", os.Args[1])
 		printUsage()
@@ -120,6 +172,8 @@ func printUsage() {
 	fmt.Println("  item          Get a specific item")
 	fmt.Println("  collections   List collections in a library")
 	fmt.Println("  groups        List groups for a user")
+	fmt.Println("  create        Create a new item")
+	fmt.Println("  upload        Upload a file attachment")
 	fmt.Println("\nEnvironment Variables:")
 	fmt.Println("  ZOTERO_API_KEY       API key for authentication")
 	fmt.Println("  ZOTERO_LIBRARY_ID    Library ID (default for commands)")
@@ -129,6 +183,9 @@ func printUsage() {
 	fmt.Println("  zotero-cli item -library 12345 -item ABC123")
 	fmt.Println("  zotero-cli collections -library 12345")
 	fmt.Println("  zotero-cli groups -user 12345")
+	fmt.Println("  zotero-cli create -title 'My Paper' -authors 'John Doe, Jane Smith'")
+	fmt.Println("  zotero-cli create -title 'Research Article' -file paper.pdf")
+	fmt.Println("  zotero-cli upload -file paper.pdf -parent ABC123")
 }
 
 func listItems(libraryID, libraryType, apiKey string, verbose bool, limit, start int, itemType string) {
@@ -311,7 +368,7 @@ func printCollectionsTable(collections []zotero.Collection) {
 	for _, coll := range collections {
 		key := coll.Key
 		name := truncate(coll.Data.Name, 40)
-		parent := coll.Data.ParentCollection
+		parent := string(coll.Data.ParentCollection)
 		if parent == "" {
 			parent = "-"
 		} else {
@@ -378,4 +435,104 @@ func truncate(s string, maxLen int) string {
 		return s[:maxLen]
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// createItem creates a new item in the library
+func createItem(libraryID, libraryType, apiKey string, verbose bool, itemType, title, authors, file, contentType string) {
+	client := createClient(libraryID, libraryType, apiKey, verbose)
+	ctx := context.Background()
+
+	// Parse authors
+	var creators []zotero.Creator
+	if authors != "" {
+		authorList := strings.Split(authors, ",")
+		for _, author := range authorList {
+			author = strings.TrimSpace(author)
+			parts := strings.Fields(author)
+			if len(parts) >= 2 {
+				creators = append(creators, zotero.Creator{
+					CreatorType: zotero.CreatorTypeAuthor,
+					FirstName:   strings.Join(parts[:len(parts)-1], " "),
+					LastName:    parts[len(parts)-1],
+				})
+			} else if len(parts) == 1 {
+				creators = append(creators, zotero.Creator{
+					CreatorType: zotero.CreatorTypeAuthor,
+					Name:        parts[0],
+				})
+			}
+		}
+	}
+
+	// Create the item
+	item := zotero.Item{
+		Data: zotero.ItemData{
+			ItemType: itemType,
+			Title:    title,
+			Creators: creators,
+		},
+	}
+
+	resp, err := client.CreateItems(ctx, []zotero.Item{item})
+	if err != nil {
+		fmt.Printf("Error creating item: %v\n", err)
+		os.Exit(1)
+	}
+
+	var itemKey string
+	if len(resp.Success) > 0 {
+		for idx, key := range resp.Success {
+			if keyStr, ok := key.(string); ok {
+				itemKey = keyStr
+				fmt.Printf("Successfully created item with key: %s (index: %s)\n", keyStr, idx)
+			}
+		}
+	}
+
+	if len(resp.Failed) > 0 {
+		fmt.Println("\nFailed items:")
+		for idx, failure := range resp.Failed {
+			fmt.Printf("  Index %s: %d - %s\n", idx, failure.Code, failure.Message)
+		}
+		os.Exit(1)
+	}
+
+	// Upload file attachment if specified
+	if file != "" && itemKey != "" {
+		fmt.Printf("\nUploading attachment: %s\n", file)
+		attachment, err := client.UploadAttachment(ctx, itemKey, file, "", contentType)
+		if err != nil {
+			fmt.Printf("Error uploading attachment: %v\n", err)
+			fmt.Println("Note: Item was created successfully, but attachment upload failed")
+			os.Exit(1)
+		}
+		fmt.Printf("Successfully attached file!\n")
+		fmt.Printf("Attachment Key: %s\n", attachment.Key)
+		fmt.Printf("Filename: %s\n", attachment.Data.Filename)
+	}
+}
+
+// uploadFile uploads a file as an attachment
+func uploadFile(libraryID, libraryType, apiKey string, verbose bool, filepath, parentItem, contentType string) {
+	client := createClient(libraryID, libraryType, apiKey, verbose)
+	ctx := context.Background()
+
+	fmt.Printf("Uploading file: %s\n", filepath)
+	if parentItem != "" {
+		fmt.Printf("Parent item: %s\n", parentItem)
+	} else {
+		fmt.Println("Creating standalone attachment")
+	}
+
+	item, err := client.UploadAttachment(ctx, parentItem, filepath, "", contentType)
+	if err != nil {
+		fmt.Printf("Error uploading file: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("\nSuccessfully uploaded attachment!\n")
+	fmt.Printf("Key: %s\n", item.Key)
+	fmt.Printf("Title: %s\n", item.Data.Title)
+	fmt.Printf("Content Type: %s\n", item.Data.ContentType)
+	fmt.Printf("Filename: %s\n", item.Data.Filename)
 }

@@ -1,6 +1,10 @@
 package zotero
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 // Item represents a Zotero item (book, article, note, etc.)
 type Item struct {
@@ -28,6 +32,14 @@ type ItemData struct {
 	Relations    Relations `json:"relations,omitempty"`
 	DateAdded    string    `json:"dateAdded,omitempty"`
 	DateModified string    `json:"dateModified,omitempty"`
+
+	// Attachment-specific fields
+	LinkMode    string `json:"linkMode,omitempty"`    // imported_file, imported_url, linked_file, linked_url
+	ContentType string `json:"contentType,omitempty"` // MIME type (e.g., application/pdf)
+	Filename    string `json:"filename,omitempty"`    // Filename for the attachment
+	MD5         string `json:"md5,omitempty"`         // MD5 hash of the file
+	MTime       int64  `json:"mtime,omitempty"`       // Modification time in milliseconds
+	ParentItem  string `json:"parentItem,omitempty"`  // Parent item key
 
 	// Additional fields that vary by item type
 	Extra map[string]any `json:"-"`
@@ -70,11 +82,48 @@ type Collection struct {
 
 // CollectionData contains the actual collection content
 type CollectionData struct {
-	Key              string    `json:"key,omitempty"`
-	Version          int       `json:"version,omitempty"`
-	Name             string    `json:"name"`
-	ParentCollection string    `json:"parentCollection,omitempty"`
-	Relations        Relations `json:"relations,omitempty"`
+	Key              string              `json:"key,omitempty"`
+	Version          int                 `json:"version,omitempty"`
+	Name             string              `json:"name"`
+	ParentCollection ParentCollectionRef `json:"parentCollection,omitempty"`
+	Relations        Relations           `json:"relations,omitempty"`
+}
+
+// ParentCollectionRef represents a parent collection reference that can be either a string key or false
+type ParentCollectionRef string
+
+// UnmarshalJSON handles the case where parentCollection can be false (no parent) or a string (parent key)
+func (p *ParentCollectionRef) UnmarshalJSON(data []byte) error {
+	// Try to unmarshal as bool first (handles false case)
+	var b bool
+	if err := json.Unmarshal(data, &b); err == nil {
+		if !b {
+			*p = ""
+			return nil
+		}
+		return fmt.Errorf("unexpected boolean value true for parentCollection")
+	}
+
+	// Otherwise unmarshal as string
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	*p = ParentCollectionRef(s)
+	return nil
+}
+
+// MarshalJSON handles serialization - empty string becomes false, non-empty becomes string
+func (p ParentCollectionRef) MarshalJSON() ([]byte, error) {
+	if p == "" {
+		return json.Marshal(false)
+	}
+	return json.Marshal(string(p))
+}
+
+// String returns the parent collection key as a string
+func (p ParentCollectionRef) String() string {
+	return string(p)
 }
 
 // Search represents a saved search
