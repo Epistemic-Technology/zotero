@@ -94,10 +94,13 @@ export ZOTERO_LIBRARY_TYPE=user  # or group
 
 # Then you can omit flags:
 bin/zotero-cli items -limit 10
+bin/zotero-cli items -itemtype journalArticle -limit 10
+bin/zotero-cli items -itemtype "-annotation" -limit 20
 bin/zotero-cli collections
 
 # Option 2: Use command-line flags
 bin/zotero-cli items -library 12345 -key your_key -limit 10
+bin/zotero-cli items -library 12345 -itemtype "book,journalArticle" -limit 20
 bin/zotero-cli item -library 12345 -item ABC123
 bin/zotero-cli collections -library 12345
 bin/zotero-cli groups -user 12345
@@ -138,6 +141,22 @@ The library consists of three main files in the `zotero/` package:
    - Group operations: `Groups()` (requires user library type)
    - Utility methods: `NumItems()`, `LastModifiedVersion()`, `Deleted()`
 
+4. **itemtypes.go** - Item type and creator type constants
+   - String constants for common item types (book, journalArticle, webpage, etc.)
+   - String constants for common creator types (author, editor, contributor, etc.)
+   - Provides IDE autocomplete and type safety for most common use cases
+   - Helper functions: `IsExcludeFilter()`, `WithoutExcludePrefix()`
+   - Users can still use raw strings for any item type not listed as a constant
+
+5. **schema.go** - Dynamic schema fetching from Zotero API
+   - `ItemTypes()` - Fetch all available item types with localization
+   - `ItemFields()` - Fetch all available fields
+   - `ItemTypeFields()` - Fetch valid fields for a specific item type
+   - `ItemTypeCreatorTypes()` - Fetch valid creator types for a specific item type
+   - `CreatorFields()` - Fetch localized creator field names
+   - `NewItemTemplate()` - Get a template for creating new items (useful for future write operations)
+   - All methods support optional locale parameter for internationalization
+
 ### Client Configuration
 
 The `NewClient()` function accepts a library ID and type, plus optional configuration via:
@@ -170,8 +189,45 @@ API requests can be customized with `QueryParams`:
 - `QMode` - Quick search mode (titleCreatorYear, everything)
 - `Tag` - Filter by tag(s)
 - `ItemKey` - Filter by item key(s)
+- `ItemType` - Filter by item type(s); prefix with "-" to exclude (e.g., []string{"journalArticle"} or []string{"-annotation"})
 - `Since` - Return only objects modified since version
 - `Extra` - Additional query parameters
+
+#### Item Type Filtering Examples
+
+The library provides constants for common item types with IDE autocomplete support:
+
+```go
+import "github.com/Epistemic-Technology/zotero/zotero"
+
+// Using constants (recommended - provides IDE autocomplete)
+items, err := client.Items(ctx, &zotero.QueryParams{
+    ItemType: []string{zotero.ItemTypeJournalArticle},
+    Limit:    25,
+})
+
+// Exclude annotations using constant
+items, err := client.Items(ctx, &zotero.QueryParams{
+    ItemType: []string{"-" + zotero.ItemTypeAnnotation},
+    Limit:    50,
+})
+
+// Multiple filters: books and journal articles, excluding annotations
+items, err := client.Items(ctx, &zotero.QueryParams{
+    ItemType: []string{
+        zotero.ItemTypeBook,
+        zotero.ItemTypeJournalArticle,
+        "-" + zotero.ItemTypeAnnotation,
+    },
+})
+
+// You can still use raw strings for item types not available as constants
+items, err := client.Items(ctx, &zotero.QueryParams{
+    ItemType: []string{"customItemType"},
+})
+```
+
+Available item type constants include: `ItemTypeBook`, `ItemTypeJournalArticle`, `ItemTypeWebpage`, `ItemTypeAttachment`, `ItemTypeNote`, `ItemTypeAnnotation`, `ItemTypeConferencePaper`, `ItemTypeThesis`, `ItemTypeReport`, `ItemTypeBlogPost`, `ItemTypePodcast`, `ItemTypeVideoRecording`, and many more (see `zotero/itemtypes.go` for the complete list).
 
 ### Data Model Design
 
@@ -179,11 +235,41 @@ Items use a flexible structure where common fields are explicitly defined in `It
 
 Relations between items use the `Relations` struct with Dublin Core and OWL predicates for semantic relationships.
 
+### Schema Fetching
+
+For advanced use cases (e.g., validation, UI generation, supporting new item types), you can fetch the current Zotero schema dynamically:
+
+```go
+// Fetch all available item types
+itemTypes, err := client.ItemTypes(ctx, "en-US")
+for _, it := range itemTypes {
+    fmt.Printf("%s: %s\n", it.ItemType, it.Localized)
+}
+
+// Fetch valid fields for a specific item type
+fields, err := client.ItemTypeFields(ctx, zotero.ItemTypeBook, "")
+for _, field := range fields {
+    fmt.Printf("%s: %s\n", field.Field, field.Localized)
+}
+
+// Fetch valid creator types for a specific item type
+creatorTypes, err := client.ItemTypeCreatorTypes(ctx, zotero.ItemTypeJournalArticle, "")
+for _, ct := range creatorTypes {
+    fmt.Printf("%s: %s\n", ct.CreatorType, ct.Localized)
+}
+
+// Get a template for creating new items (useful for future write operations)
+template, err := client.NewItemTemplate(ctx, zotero.ItemTypeBook)
+// template is a map[string]any with all fields for the item type
+```
+
+Schema methods support optional locale parameters (e.g., "en-US", "de-DE", "fr-FR") for internationalization. The Zotero API recommends caching schema data for about an hour.
+
 ### CLI Tool
 
 The `cmd/zotero-cli` package provides a command-line interface for interacting with the Zotero API:
 - **Commands**:
-  - `items` - List items in a library with pagination support (limit, start)
+  - `items` - List items in a library with pagination support (limit, start, itemtype filtering)
   - `item` - Get a specific item by key
   - `collections` - List all collections in a library
   - `groups` - List groups for a user
@@ -193,6 +279,7 @@ The `cmd/zotero-cli` package provides a command-line interface for interacting w
   - `ZOTERO_LIBRARY_TYPE` - Library type: user or group (default: user)
 - **Features**:
   - JSON output formatting with indentation
+  - Item type filtering with `-itemtype` flag (supports comma-separated list and exclusion with "-" prefix)
   - Verbose logging flag (`-v`) for debugging
   - Command-line flags override environment variables
 - Built on top of the core `zotero` package
@@ -240,7 +327,6 @@ The project has two types of tests:
 - ❌ JSON field ordering preservation (preserveJSON flag defined but not used)
 - ❌ Attachment upload/download
 - ❌ Full-text search
-- ❌ Item type and field schema endpoints
 
 ## External References
 

@@ -1,0 +1,18 @@
+[
+  {
+    "itemType": "artwork",
+    "localized": "Artwork"
+  },
+  {
+    "itemType": "book",
+    "localized": "Book"
+  },
+  {
+    "itemType": "journalArticle",
+    "localized": "Journal Article"
+  },
+  {
+    "itemType": "note",
+    "localized": "Note"
+  }
+]

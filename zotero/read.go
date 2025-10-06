@@ -11,18 +11,19 @@ import (
 
 // QueryParams represents optional parameters for API requests
 type QueryParams struct {
-	Limit   int               // Maximum number of results (default 100)
-	Start   int               // Starting index for results
-	Sort    string            // Field to sort by (dateAdded, dateModified, title, creator, itemType, etc.)
-	Format  string            // Response format (atom, bib, json, keys, versions, etc.)
-	Include string            // Additional data to include (data, bib, citation, etc.)
-	Style   string            // Citation style for bib/citation formats
-	Q       string            // Quick search query
-	QMode   string            // Quick search mode (titleCreatorYear, everything)
-	Tag     []string          // Filter by tag(s)
-	ItemKey []string          // Filter by item key(s)
-	Since   int               // Return only objects modified since version
-	Extra   map[string]string // Additional query parameters
+	Limit    int               // Maximum number of results (default 100)
+	Start    int               // Starting index for results
+	Sort     string            // Field to sort by (dateAdded, dateModified, title, creator, itemType, etc.)
+	Format   string            // Response format (atom, bib, json, keys, versions, etc.)
+	Include  string            // Additional data to include (data, bib, citation, etc.)
+	Style    string            // Citation style for bib/citation formats
+	Q        string            // Quick search query
+	QMode    string            // Quick search mode (titleCreatorYear, everything)
+	Tag      []string          // Filter by tag(s)
+	ItemKey  []string          // Filter by item key(s)
+	ItemType []string          // Filter by item type(s); prefix with "-" to exclude (e.g., "-annotation")
+	Since    int               // Return only objects modified since version
+	Extra    map[string]string // Additional query parameters
 }
 
 // Items retrieves all library items

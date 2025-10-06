@@ -1,0 +1,18 @@
+[
+  {
+    "field": "title",
+    "localized": "Title"
+  },
+  {
+    "field": "abstractNote",
+    "localized": "Abstract"
+  },
+  {
+    "field": "date",
+    "localized": "Date"
+  },
+  {
+    "field": "url",
+    "localized": "URL"
+  }
+]

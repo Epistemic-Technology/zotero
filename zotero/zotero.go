@@ -183,6 +183,9 @@ func (c *Client) buildQueryString(params *QueryParams) string {
 	for _, key := range params.ItemKey {
 		values.Add("itemKey", key)
 	}
+	for _, itemType := range params.ItemType {
+		values.Add("itemType", itemType)
+	}
 
 	for k, v := range params.Extra {
 		values.Set(k, v)

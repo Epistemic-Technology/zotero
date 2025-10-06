@@ -1,0 +1,14 @@
+[
+  {
+    "creatorType": "author",
+    "localized": "Author"
+  },
+  {
+    "creatorType": "editor",
+    "localized": "Editor"
+  },
+  {
+    "creatorType": "translator",
+    "localized": "Translator"
+  }
+]

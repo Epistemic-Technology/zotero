@@ -475,3 +475,78 @@ func TestTrash(t *testing.T) {
 
 	t.Logf("Trash contains %d items", len(items))
 }
+
+// TestItemTypeFilter tests filtering items by item type
+func TestItemTypeFilter(t *testing.T) {
+	client := skipIfNoCredentials(t)
+
+	ctx := context.Background()
+
+	// Test filtering for journal articles
+	articles, err := client.Items(ctx, &zotero.QueryParams{
+		ItemType: []string{"journalArticle"},
+		Limit:    10,
+	})
+	if err != nil {
+		t.Fatalf("Items() with itemType filter error = %v", err)
+	}
+
+	// Verify all returned items are journal articles
+	for _, item := range articles {
+		if item.Data.ItemType != "journalArticle" {
+			t.Errorf("Expected journalArticle, got %s", item.Data.ItemType)
+		}
+	}
+
+	t.Logf("Successfully retrieved %d journal articles", len(articles))
+}
+
+// TestExcludeItemType tests excluding item types using negative filter
+func TestExcludeItemType(t *testing.T) {
+	client := skipIfNoCredentials(t)
+
+	ctx := context.Background()
+
+	// Test excluding annotations
+	items, err := client.Items(ctx, &zotero.QueryParams{
+		ItemType: []string{"-annotation"},
+		Limit:    20,
+	})
+	if err != nil {
+		t.Fatalf("Items() with exclude itemType error = %v", err)
+	}
+
+	// Verify no returned items are annotations
+	for _, item := range items {
+		if item.Data.ItemType == "annotation" {
+			t.Errorf("Found annotation item when it should be excluded: %s", item.Key)
+		}
+	}
+
+	t.Logf("Successfully retrieved %d items (excluding annotations)", len(items))
+}
+
+// TestMultipleItemTypes tests filtering for multiple item types
+func TestMultipleItemTypes(t *testing.T) {
+	client := skipIfNoCredentials(t)
+
+	ctx := context.Background()
+
+	// Test filtering for books and journal articles
+	items, err := client.Items(ctx, &zotero.QueryParams{
+		ItemType: []string{"book", "journalArticle"},
+		Limit:    20,
+	})
+	if err != nil {
+		t.Fatalf("Items() with multiple itemType filters error = %v", err)
+	}
+
+	// Verify all returned items are either books or journal articles
+	for _, item := range items {
+		if item.Data.ItemType != "book" && item.Data.ItemType != "journalArticle" {
+			t.Errorf("Expected book or journalArticle, got %s", item.Data.ItemType)
+		}
+	}
+
+	t.Logf("Successfully retrieved %d books and journal articles", len(items))
+}

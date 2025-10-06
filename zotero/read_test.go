@@ -471,3 +471,104 @@ func TestContextCancellation(t *testing.T) {
 		t.Error("expected error for cancelled context")
 	}
 }
+
+func TestItemsWithItemTypeFilter(t *testing.T) {
+	server, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		itemTypes := query["itemType"]
+		if len(itemTypes) != 1 {
+			t.Errorf("itemType count = %v, want 1", len(itemTypes))
+		}
+		if itemTypes[0] != "journalArticle" {
+			t.Errorf("itemType = %v, want journalArticle", itemTypes[0])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(loadFixture(t, "items.json"))
+	})
+	defer server.Close()
+
+	params := &QueryParams{
+		ItemType: []string{"journalArticle"},
+	}
+	items, err := client.Items(context.Background(), params)
+	if err != nil {
+		t.Fatalf("Items() error = %v", err)
+	}
+
+	if len(items) != 2 {
+		t.Errorf("len(items) = %v, want 2", len(items))
+	}
+}
+
+func TestItemsWithExcludeItemType(t *testing.T) {
+	server, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		itemTypes := query["itemType"]
+		if len(itemTypes) != 1 {
+			t.Errorf("itemType count = %v, want 1", len(itemTypes))
+		}
+		if itemTypes[0] != "-annotation" {
+			t.Errorf("itemType = %v, want -annotation", itemTypes[0])
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(loadFixture(t, "items.json"))
+	})
+	defer server.Close()
+
+	params := &QueryParams{
+		ItemType: []string{"-annotation"},
+	}
+	items, err := client.Items(context.Background(), params)
+	if err != nil {
+		t.Fatalf("Items() error = %v", err)
+	}
+
+	if len(items) != 2 {
+		t.Errorf("len(items) = %v, want 2", len(items))
+	}
+}
+
+func TestItemsWithMultipleItemTypes(t *testing.T) {
+	server, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		itemTypes := query["itemType"]
+		if len(itemTypes) != 3 {
+			t.Errorf("itemType count = %v, want 3", len(itemTypes))
+		}
+		expectedTypes := map[string]bool{
+			"journalArticle": false,
+			"book":           false,
+			"-annotation":    false,
+		}
+		for _, itemType := range itemTypes {
+			if _, ok := expectedTypes[itemType]; ok {
+				expectedTypes[itemType] = true
+			} else {
+				t.Errorf("unexpected itemType: %v", itemType)
+			}
+		}
+		for itemType, found := range expectedTypes {
+			if !found {
+				t.Errorf("itemType %v not found in query", itemType)
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(loadFixture(t, "items.json"))
+	})
+	defer server.Close()
+
+	params := &QueryParams{
+		ItemType: []string{"journalArticle", "book", "-annotation"},
+	}
+	items, err := client.Items(context.Background(), params)
+	if err != nil {
+		t.Fatalf("Items() error = %v", err)
+	}
+
+	if len(items) != 2 {
+		t.Errorf("len(items) = %v, want 2", len(items))
+	}
+}
