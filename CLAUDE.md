@@ -97,6 +97,7 @@ bin/zotero-cli items -limit 10
 bin/zotero-cli items -itemtype journalArticle -limit 10
 bin/zotero-cli items -itemtype "-annotation" -limit 20
 bin/zotero-cli collections
+bin/zotero-cli download -item ABC123 -path ./downloads
 
 # Option 2: Use command-line flags
 bin/zotero-cli items -library 12345 -key your_key -limit 10
@@ -104,19 +105,20 @@ bin/zotero-cli items -library 12345 -itemtype "book,journalArticle" -limit 20
 bin/zotero-cli item -library 12345 -item ABC123
 bin/zotero-cli collections -library 12345
 bin/zotero-cli groups -user 12345
+bin/zotero-cli download -library 12345 -item ABC123 -filename article.pdf -path ./downloads
 ```
 
 ## Architecture
 
 ### Core Structure
 
-The library consists of seven main files in the `zotero/` package:
+The library consists of the following main files in the `zotero/` package:
 
 1. **zotero.go** - Client configuration and initialization
    - `Client` struct manages API connections with library ID, type (user/group), and API key
    - Functional options pattern via `ClientOption` for flexible configuration
    - Built-in rate limiting using `golang.org/x/time/rate` (default 1 request/second)
-   - HTTP request handling with `doRequest()` and `doWriteRequest()` methods supporting context, rate limiting, and error handling
+   - HTTP request handling with `doRequest()` method supporting context, rate limiting, and error handling
    - Configurable retry logic via `RetryConfig` (currently defined but not implemented)
    - Logger support for debugging API requests
 
@@ -139,6 +141,7 @@ The library consists of seven main files in the `zotero/` package:
    - Search operations: `Searches()`, `Search()`
    - Tag operations: `Tags()`, `ItemTags()`, `CollectionTags()`
    - Group operations: `Groups()` (requires user library type)
+   - File operations: `File()` - Download raw attachment content, `Dump()` - Download and save attachment to disk with auto-filename detection
    - Utility methods: `NumItems()`, `LastModifiedVersion()`, `Deleted()`
 
 4. **write.go** - Write operations for the Zotero API
@@ -168,11 +171,19 @@ The library consists of seven main files in the `zotero/` package:
    - `NewItemTemplate()` - Get a template for creating new items (recommended before creating items)
    - All methods support optional locale parameter for internationalization
 
-7. **write_test.go** - Unit tests for write operations
-   - Mock HTTP server tests for create, update, and delete operations
-   - Tests for items, collections, searches, and tags
-   - Tests for batch operations and error handling
-   - Tests for version-based concurrency control
+### Test Files
+
+**Unit Tests (`zotero/` package):**
+- **read_test.go** - Unit tests for read operations using mock HTTP servers
+- **write_test.go** - Unit tests for write operations using mock HTTP servers
+- **models_test.go** - Tests for data model serialization/deserialization
+- **itemtypes_test.go** - Tests for item type constants and helper functions
+- **schema_test.go** - Tests for schema fetching operations
+- **zotero_test.go** - Tests for client configuration and initialization
+
+**Integration Tests (`tests/` package):**
+- **integration_test.go** - Integration tests for read operations against live/local API
+- **write_integration_test.go** - Integration tests for write operations against live/local API
 
 ### Client Configuration
 
@@ -383,6 +394,8 @@ err = client.DeleteTags(ctx, version, "obsolete", "old-tag")
 
 #### Attachments
 
+##### Uploading Files
+
 ```go
 // Upload a file as an attachment to a parent item
 attachment, err := client.UploadAttachment(ctx, parentItemKey, "/path/to/file.pdf", "file.pdf", "application/pdf")
@@ -399,6 +412,37 @@ attachment, err := client.UploadAttachment(ctx, "", "/path/to/document.pdf", "do
 // 3. Uploads the file to cloud storage (S3)
 // 4. Registers the upload with Zotero
 // 5. Returns the completed attachment item
+```
+
+##### Downloading Files
+
+```go
+// Download raw file content
+fileContent, err := client.File(ctx, "ABCD1234")
+if err != nil {
+    log.Fatal(err)
+}
+// fileContent is a []byte containing the file data
+
+// Save file to disk with automatic filename detection
+fullPath, err := client.Dump(ctx, "ABCD1234", "", "")
+if err != nil {
+    log.Fatal(err)
+}
+fmt.Printf("File saved to: %s\n", fullPath)
+
+// Save file with custom filename and path
+fullPath, err := client.Dump(ctx, "ABCD1234", "my-article.pdf", "/path/to/downloads")
+if err != nil {
+    log.Fatal(err)
+}
+// File saved to: /path/to/downloads/my-article.pdf
+
+// Dump() automatically:
+// 1. Fetches item metadata to determine filename (if not provided)
+// 2. Downloads the file content
+// 3. Writes to disk
+// 4. Returns the full path to the saved file
 ```
 
 #### Batch Operations
@@ -476,48 +520,68 @@ Schema methods support optional locale parameters (e.g., "en-US", "de-DE", "fr-F
 ### CLI Tool
 
 The `cmd/zotero-cli` package provides a command-line interface for interacting with the Zotero API:
-- **Commands**:
-  - `items` - List items in a library with pagination support (limit, start, itemtype filtering)
-  - `item` - Get a specific item by key
-  - `collections` - List all collections in a library
-  - `groups` - List groups for a user
-- **Environment variable support**:
-  - `ZOTERO_API_KEY` - API key for authentication
-  - `ZOTERO_LIBRARY_ID` - Library ID (default for commands)
-  - `ZOTERO_LIBRARY_TYPE` - Library type: user or group (default: user)
-- **Features**:
-  - JSON output formatting with indentation
-  - Item type filtering with `-itemtype` flag (supports comma-separated list and exclusion with "-" prefix)
-  - Verbose logging flag (`-v`) for debugging
-  - Command-line flags override environment variables
+
+**Commands**:
+- `items` - List items in a library with pagination support (limit, start, itemtype filtering)
+- `item` - Get a specific item by key
+- `collections` - List all collections in a library
+- `groups` - List groups for a user
+- `create` - Create a new item with optional file attachment
+- `upload` - Upload a file attachment to an item
+- `download` - Download a file attachment from an item
+
+**Environment variable support**:
+- `ZOTERO_API_KEY` - API key for authentication
+- `ZOTERO_LIBRARY_ID` - Library ID (default for commands)
+- `ZOTERO_LIBRARY_TYPE` - Library type: user or group (default: user)
+
+**Features**:
+- Tabular output for lists (items, collections, groups) with formatted columns
+- Detailed output for single item view
+- Item type filtering with `-itemtype` flag (supports comma-separated list and exclusion with "-" prefix)
+- Verbose logging flag (`-v`) for debugging API requests
+- Command-line flags override environment variables
 - Built on top of the core `zotero` package
 
 ## Testing Strategy
 
-The project has two types of tests:
+The project uses a comprehensive two-tier testing approach:
 
 ### Unit Tests (`zotero/` package)
-- **Location**: `zotero/*_test.go`
+- **Location**: `zotero/*_test.go` (6 test files)
 - **Type**: White-box tests using mock HTTP servers
 - **Fixtures**: JSON test data in `zotero/testdata/`
 - **Speed**: Fast, no external dependencies
-- **Run**: `make test-unit` or `go test ./zotero`
-- **Purpose**: Test internal logic, data models, query building, error handling
+- **Run**: `make test-unit` or `go test ./zotero -v`
+- **Coverage**:
+  - `read_test.go` - All read operations (Items, Collections, Searches, Tags, Groups, File downloads)
+  - `write_test.go` - All write operations (Create, Update, Delete for items, collections, searches, tags, file uploads)
+  - `models_test.go` - Data model serialization/deserialization
+  - `itemtypes_test.go` - Item type constants and helper functions
+  - `schema_test.go` - Schema fetching operations
+  - `zotero_test.go` - Client configuration and initialization
+- **Purpose**: Test internal logic, data models, query building, error handling, context cancellation
 
 ### Integration Tests (`tests/` package)
 - **Location**: `tests/integration_test.go`, `tests/write_integration_test.go`
 - **Type**: Black-box tests against real Zotero APIs
-- **Requirements**: API credentials in `.env` file (write operations require API key with write permissions)
-- **APIs**: Live Zotero Web API or local Zotero desktop REST API
-- **Run**: `make test-integration` or `go test ./tests`
-- **Purpose**: Verify end-to-end functionality with real API
+- **Requirements**: API credentials in `.env` file or environment variables (write operations require API key with write permissions)
+- **APIs Supported**: Live Zotero Web API (`https://api.zotero.org`) or local Zotero desktop REST API (`http://localhost:23119`)
+- **Run**: `make test-integration` or `go test ./tests -v`
+- **Coverage**:
+  - `integration_test.go` - Read operations against live API (pagination, sorting, filtering, item type filtering)
+  - `write_integration_test.go` - Write operations with automatic cleanup:
+    - Single and batch item create/update/delete
+    - Collection operations including nested collections
+    - Saved search operations
+    - Tag operations
+    - File upload and download
+    - Version-based concurrency control validation
 - **Features**:
   - Auto-skip if credentials not available
-  - Switch between live and local API via `TEST_API_URL`
-  - Test all read operations: pagination, sorting, filtering
-  - Test all write operations: create, update, delete for items, collections, searches, tags
-  - Test batch operations and version-based concurrency control
+  - Switch between live and local API via `TEST_API_URL` environment variable
   - Automatic cleanup of test resources using deferred deletion
+  - Comprehensive error handling and validation
   - See `tests/README.md` for detailed documentation
 
 ## Current Status
@@ -530,6 +594,7 @@ The project has two types of tests:
   - ✅ Create, update, delete saved searches (single and batch operations)
   - ✅ Add and delete tags
   - ✅ Upload attachments (multi-step file upload process)
+  - ✅ Download attachments (File() and Dump() methods)
   - ✅ Version-based concurrency control (412 Precondition Failed on version mismatch)
   - ✅ Batch operations (up to 50 items per request)
   - ✅ WriteResponse with success/unchanged/failed tracking
@@ -546,7 +611,6 @@ The project has two types of tests:
 ### Not Yet Implemented
 - ❌ Retry logic for failed requests (RetryConfig defined but not used)
 - ❌ JSON field ordering preservation (preserveJSON flag defined but not used)
-- ❌ Attachment download (upload is implemented)
 - ❌ Full-text search
 - ❌ Adding items to collections via write API
 - ❌ Removing items from collections via write API

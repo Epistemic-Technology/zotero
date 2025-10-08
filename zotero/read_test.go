@@ -572,3 +572,192 @@ func TestItemsWithMultipleItemTypes(t *testing.T) {
 		t.Errorf("len(items) = %v, want 2", len(items))
 	}
 }
+
+func TestFile(t *testing.T) {
+	expectedContent := []byte("This is a test PDF file content")
+
+	server, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/users/12345/items/ABCD1234/file" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Write(expectedContent)
+	})
+	defer server.Close()
+
+	content, err := client.File(context.Background(), "ABCD1234")
+	if err != nil {
+		t.Fatalf("File() error = %v", err)
+	}
+
+	if string(content) != string(expectedContent) {
+		t.Errorf("content = %v, want %v", string(content), string(expectedContent))
+	}
+}
+
+func TestFileNotFound(t *testing.T) {
+	server, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"message": "File not found"}`))
+	})
+	defer server.Close()
+
+	_, err := client.File(context.Background(), "NOTFOUND")
+	if err == nil {
+		t.Error("expected error for 404 response")
+	}
+}
+
+func TestDump(t *testing.T) {
+	expectedContent := []byte("This is a test PDF file content")
+
+	// Create a temporary directory for the test
+	tmpDir := t.TempDir()
+
+	server, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/users/12345/items/ABCD1234" {
+			// Return item metadata
+			w.Header().Set("Content-Type", "application/json")
+			item := Item{
+				Key: "ABCD1234",
+				Data: ItemData{
+					ItemType: "attachment",
+					Title:    "Test PDF",
+					Filename: "test.pdf",
+				},
+			}
+			data, _ := json.Marshal(item)
+			w.Write(data)
+		} else if r.URL.Path == "/users/12345/items/ABCD1234/file" {
+			// Return file content
+			w.Header().Set("Content-Type", "application/pdf")
+			w.Write(expectedContent)
+		} else {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	})
+	defer server.Close()
+
+	// Test with explicit filename and path
+	fullPath, err := client.Dump(context.Background(), "ABCD1234", "custom.pdf", tmpDir)
+	if err != nil {
+		t.Fatalf("Dump() error = %v", err)
+	}
+
+	expectedPath := tmpDir + "/custom.pdf"
+	if fullPath != expectedPath {
+		t.Errorf("fullPath = %v, want %v", fullPath, expectedPath)
+	}
+
+	// Verify file was written correctly
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		t.Fatalf("error reading dumped file: %v", err)
+	}
+	if string(content) != string(expectedContent) {
+		t.Errorf("file content = %v, want %v", string(content), string(expectedContent))
+	}
+}
+
+func TestDumpWithAutoFilename(t *testing.T) {
+	expectedContent := []byte("This is a test PDF file content")
+
+	// Create a temporary directory for the test
+	tmpDir := t.TempDir()
+
+	server, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/users/12345/items/ABCD1234" {
+			// Return item metadata
+			w.Header().Set("Content-Type", "application/json")
+			item := Item{
+				Key: "ABCD1234",
+				Data: ItemData{
+					ItemType: "attachment",
+					Title:    "Test PDF",
+					Filename: "auto-filename.pdf",
+				},
+			}
+			data, _ := json.Marshal(item)
+			w.Write(data)
+		} else if r.URL.Path == "/users/12345/items/ABCD1234/file" {
+			// Return file content
+			w.Header().Set("Content-Type", "application/pdf")
+			w.Write(expectedContent)
+		} else {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	})
+	defer server.Close()
+
+	// Test with auto-detected filename
+	fullPath, err := client.Dump(context.Background(), "ABCD1234", "", tmpDir)
+	if err != nil {
+		t.Fatalf("Dump() error = %v", err)
+	}
+
+	expectedPath := tmpDir + "/auto-filename.pdf"
+	if fullPath != expectedPath {
+		t.Errorf("fullPath = %v, want %v", fullPath, expectedPath)
+	}
+
+	// Verify file was written correctly
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		t.Fatalf("error reading dumped file: %v", err)
+	}
+	if string(content) != string(expectedContent) {
+		t.Errorf("file content = %v, want %v", string(content), string(expectedContent))
+	}
+}
+
+func TestDumpWithTitleFallback(t *testing.T) {
+	expectedContent := []byte("This is a test PDF file content")
+
+	// Create a temporary directory for the test
+	tmpDir := t.TempDir()
+
+	server, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/users/12345/items/ABCD1234" {
+			// Return item metadata without filename
+			w.Header().Set("Content-Type", "application/json")
+			item := Item{
+				Key: "ABCD1234",
+				Data: ItemData{
+					ItemType: "attachment",
+					Title:    "Fallback Title",
+					Filename: "", // No filename, should fall back to title
+				},
+			}
+			data, _ := json.Marshal(item)
+			w.Write(data)
+		} else if r.URL.Path == "/users/12345/items/ABCD1234/file" {
+			// Return file content
+			w.Header().Set("Content-Type", "application/pdf")
+			w.Write(expectedContent)
+		} else {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+	})
+	defer server.Close()
+
+	// Test with auto-detected filename (should fall back to title)
+	fullPath, err := client.Dump(context.Background(), "ABCD1234", "", tmpDir)
+	if err != nil {
+		t.Fatalf("Dump() error = %v", err)
+	}
+
+	expectedPath := tmpDir + "/Fallback Title"
+	if fullPath != expectedPath {
+		t.Errorf("fullPath = %v, want %v", fullPath, expectedPath)
+	}
+
+	// Verify file was written correctly
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		t.Fatalf("error reading dumped file: %v", err)
+	}
+	if string(content) != string(expectedContent) {
+		t.Errorf("file content = %v, want %v", string(content), string(expectedContent))
+	}
+}

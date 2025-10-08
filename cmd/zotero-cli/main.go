@@ -156,6 +156,25 @@ func main() {
 
 		uploadFile(libraryID, libraryType, apiKey, verbose, *file, *parentItem, *contentType)
 
+	case "download":
+		downloadCmd := flag.NewFlagSet("download", flag.ExitOnError)
+		downloadCmd.StringVar(&apiKey, "key", envAPIKey, "Zotero API key (or set ZOTERO_API_KEY)")
+		downloadCmd.StringVar(&libraryID, "library", envLibraryID, "Library ID (or set ZOTERO_LIBRARY_ID)")
+		downloadCmd.StringVar(&libraryType, "type", envLibraryType, "Library type: user or group (or set ZOTERO_LIBRARY_TYPE)")
+		downloadCmd.BoolVar(&verbose, "v", false, "Enable verbose logging")
+		itemKey := downloadCmd.String("item", "", "Item key of the attachment (required)")
+		filename := downloadCmd.String("filename", "", "Output filename (empty to auto-detect from item)")
+		path := downloadCmd.String("path", "", "Output directory (empty for current directory)")
+		downloadCmd.Parse(os.Args[2:])
+
+		if libraryID == "" || *itemKey == "" {
+			fmt.Println("Error: -library and -item are required")
+			downloadCmd.PrintDefaults()
+			os.Exit(1)
+		}
+
+		downloadFile(libraryID, libraryType, apiKey, verbose, *itemKey, *filename, *path)
+
 	default:
 		fmt.Printf("Unknown command: %s\n\n", os.Args[1])
 		printUsage()
@@ -174,6 +193,7 @@ func printUsage() {
 	fmt.Println("  groups        List groups for a user")
 	fmt.Println("  create        Create a new item")
 	fmt.Println("  upload        Upload a file attachment")
+	fmt.Println("  download      Download a file attachment")
 	fmt.Println("\nEnvironment Variables:")
 	fmt.Println("  ZOTERO_API_KEY       API key for authentication")
 	fmt.Println("  ZOTERO_LIBRARY_ID    Library ID (default for commands)")
@@ -186,6 +206,7 @@ func printUsage() {
 	fmt.Println("  zotero-cli create -title 'My Paper' -authors 'John Doe, Jane Smith'")
 	fmt.Println("  zotero-cli create -title 'Research Article' -file paper.pdf")
 	fmt.Println("  zotero-cli upload -file paper.pdf -parent ABC123")
+	fmt.Println("  zotero-cli download -item ABC123 -path ./downloads")
 }
 
 func listItems(libraryID, libraryType, apiKey string, verbose bool, limit, start int, itemType string) {
@@ -535,4 +556,21 @@ func uploadFile(libraryID, libraryType, apiKey string, verbose bool, filepath, p
 	fmt.Printf("Title: %s\n", item.Data.Title)
 	fmt.Printf("Content Type: %s\n", item.Data.ContentType)
 	fmt.Printf("Filename: %s\n", item.Data.Filename)
+}
+
+// downloadFile downloads a file attachment from the library
+func downloadFile(libraryID, libraryType, apiKey string, verbose bool, itemKey, filename, path string) {
+	client := createClient(libraryID, libraryType, apiKey, verbose)
+	ctx := context.Background()
+
+	fmt.Printf("Downloading attachment: %s\n", itemKey)
+
+	fullPath, err := client.Dump(ctx, itemKey, filename, path)
+	if err != nil {
+		fmt.Printf("Error downloading file: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("\nSuccessfully downloaded attachment!\n")
+	fmt.Printf("Saved to: %s\n", fullPath)
 }

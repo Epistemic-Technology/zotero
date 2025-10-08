@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strconv"
 )
 
@@ -392,4 +393,69 @@ func (c *Client) Deleted(ctx context.Context, since int) (*DeletedContent, error
 	}
 
 	return &deleted, nil
+}
+
+// File downloads the raw file content of an attachment item
+// Returns the file content as a byte slice
+func (c *Client) File(ctx context.Context, itemKey string) ([]byte, error) {
+	path := fmt.Sprintf("/items/%s/file", itemKey)
+	body, _, err := c.doRequest(ctx, http.MethodGet, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return body, nil
+}
+
+// Dump is a convenience wrapper around File() that writes an attachment to disk
+// If filename is empty, it will fetch the item to determine the stored filename
+// If path is empty, it writes to the current working directory
+// Returns the full path to the written file
+func (c *Client) Dump(ctx context.Context, itemKey string, filename string, path string) (string, error) {
+	// If no filename provided, fetch the item to get the stored filename
+	if filename == "" {
+		item, err := c.Item(ctx, itemKey, nil)
+		if err != nil {
+			return "", fmt.Errorf("error fetching item to determine filename: %w", err)
+		}
+
+		// Try to get filename from item data
+		if item.Data.Filename != "" {
+			filename = item.Data.Filename
+		} else if item.Data.Title != "" {
+			// Fall back to title if filename not available
+			filename = item.Data.Title
+		} else {
+			// Last resort: use the item key
+			filename = itemKey
+		}
+	}
+
+	// Download the file content
+	fileContent, err := c.File(ctx, itemKey)
+	if err != nil {
+		return "", fmt.Errorf("error downloading file: %w", err)
+	}
+
+	// Build the full file path
+	var fullPath string
+	if path != "" {
+		fullPath = fmt.Sprintf("%s/%s", path, filename)
+	} else {
+		fullPath = filename
+	}
+
+	// Write the file to disk
+	file, err := os.Create(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("error creating file: %w", err)
+	}
+	defer file.Close()
+
+	_, err = file.Write(fileContent)
+	if err != nil {
+		return "", fmt.Errorf("error writing file: %w", err)
+	}
+
+	return fullPath, nil
 }

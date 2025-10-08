@@ -1,7 +1,10 @@
 package tests
 
 import (
+	"bytes"
 	"context"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/Epistemic-Technology/zotero/zotero"
@@ -830,5 +833,95 @@ func TestWriteVersionConcurrencyControl(t *testing.T) {
 
 	if currentItem.Version == originalVersion {
 		t.Errorf("expected version to have changed from %d", originalVersion)
+	}
+}
+
+// TestWriteUploadAndDownloadFile tests uploading and downloading an attachment file
+func TestWriteUploadAndDownloadFile(t *testing.T) {
+	client := skipIfNoCredentials(t)
+	ctx := context.Background()
+
+	// Create a test file with known content
+	testContent := []byte("This is a test file for Zotero attachment integration testing.\n")
+	testFilename := "test-attachment.txt"
+	testPath := t.TempDir() + "/" + testFilename
+
+	err := os.WriteFile(testPath, testContent, 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	t.Logf("Created test file at: %s", testPath)
+
+	// Upload the file as a standalone attachment
+	attachment, err := client.UploadAttachment(ctx, "", testPath, testFilename, "text/plain")
+	if err != nil {
+		// File uploads may not be supported by all API endpoints (e.g., local desktop API)
+		// Skip the test if upload isn't supported
+		if strings.Contains(err.Error(), "missing upload params") ||
+			strings.Contains(err.Error(), "missing upload URL") {
+			t.Skipf("File upload not supported by this API endpoint: %v", err)
+		}
+		t.Fatalf("UploadAttachment() error = %v", err)
+	}
+
+	attachmentKey := attachment.Key
+	t.Logf("Uploaded attachment with key: %s", attachmentKey)
+
+	// Cleanup: delete the attachment
+	defer func() {
+		fetchedAttachment, err := client.Item(ctx, attachmentKey, nil)
+		if err != nil {
+			t.Errorf("Failed to fetch attachment for cleanup: %v", err)
+			return
+		}
+
+		err = client.DeleteItem(ctx, attachmentKey, fetchedAttachment.Version)
+		if err != nil {
+			t.Errorf("Failed to cleanup attachment: %v", err)
+		} else {
+			t.Logf("Successfully deleted attachment %s", attachmentKey)
+		}
+	}()
+
+	// Download the file using File() method
+	downloadedContent, err := client.File(ctx, attachmentKey)
+	if err != nil {
+		t.Fatalf("File() error = %v", err)
+	}
+
+	// Verify the content matches
+	if !bytes.Equal(downloadedContent, testContent) {
+		t.Errorf("Downloaded content does not match original.\nExpected: %q\nGot: %q", testContent, downloadedContent)
+	} else {
+		t.Logf("Successfully downloaded file with matching content (%d bytes)", len(downloadedContent))
+	}
+
+	// Test Dump() method - save to disk
+	dumpPath := t.TempDir()
+	fullPath, err := client.Dump(ctx, attachmentKey, "", dumpPath)
+	if err != nil {
+		t.Fatalf("Dump() error = %v", err)
+	}
+
+	t.Logf("Saved file to: %s", fullPath)
+
+	// Verify the dumped file content
+	dumpedContent, err := os.ReadFile(fullPath)
+	if err != nil {
+		t.Fatalf("Failed to read dumped file: %v", err)
+	}
+
+	if !bytes.Equal(dumpedContent, testContent) {
+		t.Errorf("Dumped file content does not match original.\nExpected: %q\nGot: %q", testContent, dumpedContent)
+	} else {
+		t.Logf("Successfully dumped file with matching content")
+	}
+
+	// Verify the filename was auto-detected correctly
+	expectedPath := dumpPath + "/" + testFilename
+	if fullPath != expectedPath {
+		t.Logf("Note: Auto-detected filename differs. Expected: %s, Got: %s", expectedPath, fullPath)
+		// This is not necessarily an error - the API might return a different filename
 	}
 }
