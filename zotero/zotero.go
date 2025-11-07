@@ -141,6 +141,18 @@ func WithLogger(logger *log.Logger) ClientOption {
 	}
 }
 
+// joinWithOR joins string slices with OR operator (||)
+func joinWithOR(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	result := values[0]
+	for i := 1; i < len(values); i++ {
+		result += " || " + values[i]
+	}
+	return result
+}
+
 // buildQueryString constructs URL query parameters
 func (c *Client) buildQueryString(params *QueryParams) string {
 	if params == nil {
@@ -177,14 +189,23 @@ func (c *Client) buildQueryString(params *QueryParams) string {
 		values.Set("since", strconv.Itoa(params.Since))
 	}
 
-	for _, tag := range params.Tag {
-		values.Add("tag", tag)
+	// Tags: Join multiple tags with OR operator (||)
+	if len(params.Tag) > 0 {
+		values.Set("tag", joinWithOR(params.Tag))
 	}
-	for _, key := range params.ItemKey {
-		values.Add("itemKey", key)
+
+	// ItemKeys: Join with comma separator (up to 50 items)
+	if len(params.ItemKey) > 0 {
+		itemKeyValue := params.ItemKey[0]
+		for i := 1; i < len(params.ItemKey); i++ {
+			itemKeyValue += "," + params.ItemKey[i]
+		}
+		values.Set("itemKey", itemKeyValue)
 	}
-	for _, itemType := range params.ItemType {
-		values.Add("itemType", itemType)
+
+	// ItemTypes: Join multiple item types with OR operator (||)
+	if len(params.ItemType) > 0 {
+		values.Set("itemType", joinWithOR(params.ItemType))
 	}
 
 	for k, v := range params.Extra {

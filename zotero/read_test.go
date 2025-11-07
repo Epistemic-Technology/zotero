@@ -475,12 +475,9 @@ func TestContextCancellation(t *testing.T) {
 func TestItemsWithItemTypeFilter(t *testing.T) {
 	server, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
-		itemTypes := query["itemType"]
-		if len(itemTypes) != 1 {
-			t.Errorf("itemType count = %v, want 1", len(itemTypes))
-		}
-		if itemTypes[0] != "journalArticle" {
-			t.Errorf("itemType = %v, want journalArticle", itemTypes[0])
+		itemType := query.Get("itemType")
+		if itemType != "journalArticle" {
+			t.Errorf("itemType = %v, want journalArticle", itemType)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -504,12 +501,9 @@ func TestItemsWithItemTypeFilter(t *testing.T) {
 func TestItemsWithExcludeItemType(t *testing.T) {
 	server, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
-		itemTypes := query["itemType"]
-		if len(itemTypes) != 1 {
-			t.Errorf("itemType count = %v, want 1", len(itemTypes))
-		}
-		if itemTypes[0] != "-annotation" {
-			t.Errorf("itemType = %v, want -annotation", itemTypes[0])
+		itemType := query.Get("itemType")
+		if itemType != "-annotation" {
+			t.Errorf("itemType = %v, want -annotation", itemType)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -533,26 +527,11 @@ func TestItemsWithExcludeItemType(t *testing.T) {
 func TestItemsWithMultipleItemTypes(t *testing.T) {
 	server, client := setupMockServer(t, func(w http.ResponseWriter, r *http.Request) {
 		query := r.URL.Query()
-		itemTypes := query["itemType"]
-		if len(itemTypes) != 3 {
-			t.Errorf("itemType count = %v, want 3", len(itemTypes))
-		}
-		expectedTypes := map[string]bool{
-			"journalArticle": false,
-			"book":           false,
-			"-annotation":    false,
-		}
-		for _, itemType := range itemTypes {
-			if _, ok := expectedTypes[itemType]; ok {
-				expectedTypes[itemType] = true
-			} else {
-				t.Errorf("unexpected itemType: %v", itemType)
-			}
-		}
-		for itemType, found := range expectedTypes {
-			if !found {
-				t.Errorf("itemType %v not found in query", itemType)
-			}
+		itemType := query.Get("itemType")
+		// Multiple item types should be joined with " || "
+		expectedItemType := "journalArticle || book || -annotation"
+		if itemType != expectedItemType {
+			t.Errorf("itemType = %v, want %v", itemType, expectedItemType)
 		}
 
 		w.Header().Set("Content-Type", "application/json")

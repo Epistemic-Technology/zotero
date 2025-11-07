@@ -224,14 +224,28 @@ func TestBuildQueryString(t *testing.T) {
 			params: &QueryParams{
 				Tag: []string{"tag1", "tag2"},
 			},
-			want: "?tag=tag1&tag=tag2",
+			want: "?tag=tag1+%7C%7C+tag2",
 		},
 		{
 			name: "with item keys",
 			params: &QueryParams{
 				ItemKey: []string{"KEY1", "KEY2"},
 			},
-			want: "?itemKey=KEY1&itemKey=KEY2",
+			want: "?itemKey=KEY1%2CKEY2",
+		},
+		{
+			name: "with item types",
+			params: &QueryParams{
+				ItemType: []string{"book", "journalArticle"},
+			},
+			want: "?itemType=book+%7C%7C+journalArticle",
+		},
+		{
+			name: "with exclude item type",
+			params: &QueryParams{
+				ItemType: []string{"-annotation"},
+			},
+			want: "?itemType=-annotation",
 		},
 		{
 			name: "with since",

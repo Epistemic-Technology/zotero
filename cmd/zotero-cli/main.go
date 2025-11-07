@@ -175,6 +175,30 @@ func main() {
 
 		downloadFile(libraryID, libraryType, apiKey, verbose, *itemKey, *filename, *path)
 
+	case "create-collection":
+		createCollCmd := flag.NewFlagSet("create-collection", flag.ExitOnError)
+		createCollCmd.StringVar(&apiKey, "key", envAPIKey, "Zotero API key (or set ZOTERO_API_KEY)")
+		createCollCmd.StringVar(&libraryID, "library", envLibraryID, "Library ID (or set ZOTERO_LIBRARY_ID)")
+		createCollCmd.StringVar(&libraryType, "type", envLibraryType, "Library type: user or group (or set ZOTERO_LIBRARY_TYPE)")
+		createCollCmd.BoolVar(&verbose, "v", false, "Enable verbose logging")
+		name := createCollCmd.String("name", "", "Collection name (required)")
+		parent := createCollCmd.String("parent", "", "Parent collection key (empty for top-level collection)")
+		createCollCmd.Parse(os.Args[2:])
+
+		if libraryID == "" || *name == "" {
+			fmt.Println("Error: -library and -name are required")
+			createCollCmd.PrintDefaults()
+			os.Exit(1)
+		}
+
+		if apiKey == "" {
+			fmt.Println("Error: API key required for write operations")
+			createCollCmd.PrintDefaults()
+			os.Exit(1)
+		}
+
+		createCollection(libraryID, libraryType, apiKey, verbose, *name, *parent)
+
 	default:
 		fmt.Printf("Unknown command: %s\n\n", os.Args[1])
 		printUsage()
@@ -187,13 +211,14 @@ func printUsage() {
 	fmt.Println("\nUsage:")
 	fmt.Println("  zotero-cli <command> [options]")
 	fmt.Println("\nCommands:")
-	fmt.Println("  items         List items in a library")
-	fmt.Println("  item          Get a specific item")
-	fmt.Println("  collections   List collections in a library")
-	fmt.Println("  groups        List groups for a user")
-	fmt.Println("  create        Create a new item")
-	fmt.Println("  upload        Upload a file attachment")
-	fmt.Println("  download      Download a file attachment")
+	fmt.Println("  items              List items in a library")
+	fmt.Println("  item               Get a specific item")
+	fmt.Println("  collections        List collections in a library")
+	fmt.Println("  create-collection  Create a new collection")
+	fmt.Println("  groups             List groups for a user")
+	fmt.Println("  create             Create a new item")
+	fmt.Println("  upload             Upload a file attachment")
+	fmt.Println("  download           Download a file attachment")
 	fmt.Println("\nEnvironment Variables:")
 	fmt.Println("  ZOTERO_API_KEY       API key for authentication")
 	fmt.Println("  ZOTERO_LIBRARY_ID    Library ID (default for commands)")
@@ -202,6 +227,8 @@ func printUsage() {
 	fmt.Println("  zotero-cli items -library 12345 -type user -limit 10")
 	fmt.Println("  zotero-cli item -library 12345 -item ABC123")
 	fmt.Println("  zotero-cli collections -library 12345")
+	fmt.Println("  zotero-cli create-collection -name 'My Research'")
+	fmt.Println("  zotero-cli create-collection -name 'Subproject' -parent ABC123")
 	fmt.Println("  zotero-cli groups -user 12345")
 	fmt.Println("  zotero-cli create -title 'My Paper' -authors 'John Doe, Jane Smith'")
 	fmt.Println("  zotero-cli create -title 'Research Article' -file paper.pdf")
@@ -573,4 +600,45 @@ func downloadFile(libraryID, libraryType, apiKey string, verbose bool, itemKey, 
 
 	fmt.Printf("\nSuccessfully downloaded attachment!\n")
 	fmt.Printf("Saved to: %s\n", fullPath)
+}
+
+// createCollection creates a new collection in the library
+func createCollection(libraryID, libraryType, apiKey string, verbose bool, name, parent string) {
+	client := createClient(libraryID, libraryType, apiKey, verbose)
+	ctx := context.Background()
+
+	collection := zotero.Collection{
+		Data: zotero.CollectionData{
+			Name:             name,
+			ParentCollection: zotero.ParentCollectionRef(parent),
+		},
+	}
+
+	resp, err := client.CreateCollections(ctx, []zotero.Collection{collection})
+	if err != nil {
+		fmt.Printf("Error creating collection: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(resp.Success) > 0 {
+		for idx, key := range resp.Success {
+			if keyStr, ok := key.(string); ok {
+				fmt.Printf("Successfully created collection '%s'\n", name)
+				fmt.Printf("Key: %s (index: %s)\n", keyStr, idx)
+				if parent != "" {
+					fmt.Printf("Parent: %s\n", parent)
+				} else {
+					fmt.Println("Type: Top-level collection")
+				}
+			}
+		}
+	}
+
+	if len(resp.Failed) > 0 {
+		fmt.Println("\nFailed to create collection:")
+		for idx, failure := range resp.Failed {
+			fmt.Printf("  Index %s: %d - %s\n", idx, failure.Code, failure.Message)
+		}
+		os.Exit(1)
+	}
 }
